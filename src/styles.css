@@ -1,0 +1,71 @@
+body, html {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+  }
+  
+  .App {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+  
+  .controls {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    padding: 10px;
+    background-color: #333;
+    color: white;
+  }
+  
+  .canvas-container {
+    flex-grow: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+    box-sizing: border-box;
+  }
+  
+  canvas {
+    max-width: 100%;
+    max-height: 100%;
+  }
+  
+  .function-input, .range-input, .toggle-switch {
+    margin: 0 10px;
+  }
+  
+  input[type="text"], input[type="float"] {
+    background-color: #444;
+    color: white;
+    border: 1px solid #555;
+    padding: 5px;
+  }
+  
+  .toggle-switch label {
+    display: flex;
+    align-items: center;
+  }
+  
+  .toggle-switch input {
+    margin-left: 5px;
+  }
+
+  /* Add this to your existing styles */
+.parameter-slider {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: 0 10px;
+  }
+  
+  .parameter-slider label {
+    margin-bottom: 5px;
+  }
+  
+  .parameter-slider input {
+    width: 100px;
+  }
