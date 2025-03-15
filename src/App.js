@@ -191,7 +191,7 @@ function App() {
   const [yMax, setYMax] = useState(5);
   const [a, setA] = useState(predefinedSystems.custom.a);
   const [b, setB] = useState(predefinedSystems.custom.b);
-  const [colorScheme, setColorScheme] = useState('rainbow');
+  const [colorScheme, setColorScheme] = useState('velocity');
   const [backgroundColor, setBackgroundColor] = useState('#000014');
   const [traceMode, setTraceMode] = useState(false);
   const [selectedSystem, setSelectedSystem] = useState('custom');

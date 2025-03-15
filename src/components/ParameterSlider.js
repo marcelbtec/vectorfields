@@ -19,20 +19,36 @@
 
 
 import React from 'react';
+import styled from 'styled-components';
+
+const SliderContainer = styled.div`
+  margin: 8px 0;
+`;
+
+const SliderLabel = styled.label`
+  display: block;
+  margin-bottom: 4px;
+`;
+
+const StyledInput = styled.input`
+  width: 100%;
+`;
 
 const ParameterSlider = ({ label, value, min, max, onChange }) => {
   return (
-    <div className="parameter-slider">
-      <label>{label}: {value.toFixed(2)}</label>
-      <input
+    <SliderContainer>
+      <SliderLabel htmlFor={label}>{label}: {value.toFixed(2)}</SliderLabel>
+      <StyledInput
+        id={label}
         type="range"
         min={min}
         max={max}
         step="0.1"
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
+        aria-label={label}
       />
-    </div>
+    </SliderContainer>
   );
 };
 

@@ -17,19 +17,60 @@
  */
 
 import React from 'react';
+import styled from 'styled-components';
+
+const SwitchContainer = styled.div`
+  display: flex;
+  align-items: center;
+`;
+
+const SwitchLabel = styled.label`
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+`;
+
+const HiddenCheckbox = styled.input.attrs({ type: 'checkbox' })`
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+`;
+
+const Slider = styled.span`
+  width: 40px;
+  height: 20px;
+  background-color: #ccc;
+  border-radius: 34px;
+  position: relative;
+  margin-left: 8px;
+  transition: background-color 0.2s;
+
+  &::before {
+    content: "";
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    left: 1px;
+    bottom: 1px;
+    background-color: white;
+    border-radius: 50%;
+    transition: transform 0.2s;
+  }
+`;
 
 const ToggleSwitch = ({ label, checked, onChange }) => (
-  <div className="toggle-switch">
-    <label>
+  <SwitchContainer>
+    <SwitchLabel>
       {label}
-      <input
-        type="checkbox"
+      <HiddenCheckbox
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
+        aria-label={label}
       />
-      <span className="slider"></span>
-    </label>
-  </div>
+      <Slider />
+    </SwitchLabel>
+  </SwitchContainer>
 );
 
 export default ToggleSwitch;

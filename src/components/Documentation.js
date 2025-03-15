@@ -18,9 +18,14 @@
 
 import React, { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 
 function Documentation() {
   const [content, setContent] = useState('');
+  
+
 
   useEffect(() => {
     fetch('/docs/explanation.md')
@@ -28,7 +33,14 @@ function Documentation() {
       .then(text => setContent(text));
   }, []);
 
-  return <ReactMarkdown>{content}</ReactMarkdown>;
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkMath]}
+      rehypePlugins={[rehypeKatex]}
+    >
+      {content}
+    </ReactMarkdown>
+  );
 }
 
 export default Documentation;

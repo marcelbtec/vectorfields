@@ -19,12 +19,28 @@
 
 
 import React from 'react';
+import styled from 'styled-components';
+
+const InputContainer = styled.div`
+  margin: 8px 0;
+`;
+
+const StyledInput = styled.input`
+  width: 100%;
+  padding: 4px;
+`;
 
 const FunctionInput = ({ label, value, onChange }) => (
-  <div className="function-input">
-    <label>{label}</label>
-    <input type="text" value={value} onChange={(e) => onChange(e.target.value)} />
-  </div>
+  <InputContainer>
+    <label htmlFor={label}>{label}</label>
+    <StyledInput 
+      id={label}
+      type="text" 
+      value={value} 
+      onChange={(e) => onChange(e.target.value)}
+      aria-label={label}
+    />
+  </InputContainer>
 );
 
 export default FunctionInput;

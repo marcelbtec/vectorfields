@@ -17,27 +17,39 @@
  */
 
 import React from 'react';
+import styled from 'styled-components';
+
+const RangeContainer = styled.div`
+  margin: 8px 0;
+`;
+
+const NumberInput = styled.input`
+  width: 80px;
+  padding: 4px;
+`;
 
 const RangeInput = ({ label, min, max, onMinChange, onMaxChange }) => {
   return (
-    <div className="range-input">
+    <RangeContainer>
       <label>{label}</label>
       <div>
-        <input
+        <NumberInput
           type="number"
           value={min}
           onChange={(e) => onMinChange(parseFloat(e.target.value))}
           step="any"
+          aria-label={`${label} minimum`}
         />
         <span> to </span>
-        <input
+        <NumberInput
           type="number"
           value={max}
           onChange={(e) => onMaxChange(parseFloat(e.target.value))}
           step="any"
+          aria-label={`${label} maximum`}
         />
       </div>
-    </div>
+    </RangeContainer>
   );
 };
 
