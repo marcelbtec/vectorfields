@@ -19,6 +19,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import VectorFieldVisualization from './components/VectorFieldVisualization';
 import PhasePortrait from './components/PhasePortrait';
+import FixedPointOverlay from './components/FixedPointOverlay';
 import ReactMarkdown from 'react-markdown';
 import './App.css';
 
@@ -185,6 +186,10 @@ const predefinedSystems = {
 function App() {
   const [dx, setDx] = useState(predefinedSystems.custom.dx);
   const [dy, setDy] = useState(predefinedSystems.custom.dy);
+  const [dxInput, setDxInput] = useState(predefinedSystems.custom.dx);
+  const [dyInput, setDyInput] = useState(predefinedSystems.custom.dy);
+  const [liveUpdate, setLiveUpdate] = useState(true);
+  const [hasPendingChanges, setHasPendingChanges] = useState(false);
   const [xMin, setXMin] = useState(-5);
   const [xMax, setXMax] = useState(5);
   const [yMin, setYMin] = useState(-5);
@@ -196,17 +201,26 @@ function App() {
   const [traceMode, setTraceMode] = useState(false);
   const [selectedSystem, setSelectedSystem] = useState('custom');
   const [showDocs, setShowDocs] = useState(false);
+  const [showAnalysis, setShowAnalysis] = useState(false);
   const [docContent, setDocContent] = useState('');
 
   const updateDx = useCallback((value) => {
-    setDx(value);
+    setDxInput(value);
     setSelectedSystem('custom');
-  }, []);
+    if (!liveUpdate) setHasPendingChanges(true);
+  }, [liveUpdate]);
 
   const updateDy = useCallback((value) => {
-    setDy(value);
+    setDyInput(value);
     setSelectedSystem('custom');
-  }, []);
+    if (!liveUpdate) setHasPendingChanges(true);
+  }, [liveUpdate]);
+
+  const applyEquationChanges = useCallback(() => {
+    setDx(dxInput);
+    setDy(dyInput);
+    setHasPendingChanges(false);
+  }, [dxInput, dyInput]);
 
   const debouncedSetA = useCallback((value) => {
     setA(Number(value));
@@ -224,6 +238,15 @@ function App() {
       .then(text => setDocContent(text));
   }, []);
 
+  useEffect(() => {
+    if (!liveUpdate) return;
+    const handle = setTimeout(() => {
+      setDx(dxInput);
+      setDy(dyInput);
+      setHasPendingChanges(false);
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [dxInput, dyInput, liveUpdate]);
   
   const generateRandomEquation = useCallback(() => {
     const baseTerms = ['x', 'y', 'x*y'];
@@ -271,9 +294,14 @@ function App() {
       return expr.join(' + ').replace(/\+ -/g, '- ');
     };
   
-    setDx(generateExpression());
-    setDy(generateExpression());
+    const newDx = generateExpression();
+    const newDy = generateExpression();
+    setDx(newDx);
+    setDy(newDy);
+    setDxInput(newDx);
+    setDyInput(newDy);
     setSelectedSystem('custom');
+    setHasPendingChanges(false);
   
     // Set initial values for 'a' and 'b'
     setA(-1);
@@ -285,9 +313,21 @@ function App() {
     setSelectedSystem(e.target.value);
     setDx(system.dx);
     setDy(system.dy);
+    setDxInput(system.dx);
+    setDyInput(system.dy);
     setA(system.a);
     setB(system.b);
+    setHasPendingChanges(false);
   }, []);
+
+  const handleLiveUpdateToggle = useCallback((checked) => {
+    setLiveUpdate(checked);
+    if (checked) {
+      setDx(dxInput);
+      setDy(dyInput);
+      setHasPendingChanges(false);
+    }
+  }, [dxInput, dyInput]);
 
   const currentColorScheme = useMemo(() => colorSchemes[colorScheme] || colorSchemes.rainbow, [colorScheme]);
 
@@ -306,11 +346,41 @@ function App() {
         </div>
         <div>
           <label>dx/dt: </label>
-          <input value={dx} onChange={(e) => updateDx(e.target.value)} />
+          <input
+            value={dxInput}
+            onChange={(e) => updateDx(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && applyEquationChanges()}
+            spellCheck="false"
+          />
         </div>
         <div>
           <label>dy/dt: </label>
-          <input value={dy} onChange={(e) => updateDy(e.target.value)} />
+          <input
+            value={dyInput}
+            onChange={(e) => updateDy(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && applyEquationChanges()}
+            spellCheck="false"
+          />
+        </div>
+        <div className="equation-actions">
+          <label className="toggle-label">
+            <input
+              type="checkbox"
+              checked={liveUpdate}
+              onChange={(e) => handleLiveUpdateToggle(e.target.checked)}
+            />
+            Live update
+          </label>
+          <button
+            className="apply-button"
+            onClick={applyEquationChanges}
+            disabled={liveUpdate || !hasPendingChanges}
+          >
+            Apply
+          </button>
+          {!liveUpdate && hasPendingChanges && (
+            <span className="pending-badge">Pending changes</span>
+          )}
         </div>
         <div>
           <label>X Range: </label>
@@ -376,6 +446,9 @@ function App() {
           <button className="doc-button small" onClick={() => setShowDocs(!showDocs)}>
             Docs
           </button>
+          <button className="doc-button small" onClick={() => setShowAnalysis(!showAnalysis)}>
+            Analysis
+          </button>
         </div>
       </div>
       {showDocs && (
@@ -402,6 +475,19 @@ function App() {
             onGenerateRandomSystem={generateRandomEquation}
             traceMode={traceMode}
           />
+          {showAnalysis && (
+            <FixedPointOverlay
+              dx={dx}
+              dy={dy}
+              xMin={xMin}
+              xMax={xMax}
+              yMin={yMin}
+              yMax={yMax}
+              a={a}
+              b={b}
+              onClose={() => setShowAnalysis(false)}
+            />
+          )}
         </div>
         <div className="phase-portrait-container">
           <PhasePortrait

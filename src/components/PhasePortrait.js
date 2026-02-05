@@ -137,8 +137,9 @@ const PhasePortrait = ({
   size = 300
 }) => {
   const canvasRef = useRef(null);
+  const containerRef = useRef(null);
   const [error, setError] = useState(null);
-  const [canvasSize, setCanvasSize] = useState({ width: size, height: size });
+  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const isMounted = useRef(true);
 
   const safeSetError = useCallback((errorMessage) => {
@@ -147,16 +148,30 @@ const PhasePortrait = ({
     }
   }, []);
 
-  const updateCanvasSize = useCallback(() => {
-    setCanvasSize({ width: size, height: size });
-  }, [size]);
-
   useEffect(() => {
-    updateCanvasSize();
     return () => {
       isMounted.current = false;
     };
-  }, [updateCanvasSize]);
+  }, []);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const rawWidth = entry.contentRect.width || size;
+      const rawHeight = entry.contentRect.height || size;
+      const nextWidth = Math.max(1, Math.floor(rawWidth));
+      const nextHeight = Math.max(1, Math.floor(rawHeight));
+      setCanvasSize((prev) => (
+        prev.width === nextWidth && prev.height === nextHeight
+          ? prev
+          : { width: nextWidth, height: nextHeight }
+      ));
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [size]);
 
   // Basic expression evaluator, same as before
   const evaluateExpression = useMemo(() => {
@@ -335,19 +350,19 @@ const PhasePortrait = ({
   return (
     <div
       className="canvas-container"
+      ref={containerRef}
       style={{ 
-        position: 'absolute',
-        top: '100px',
-        right: '220px',
-        width: size,
-        height: size,
+        position: 'relative',
+        width: '100%',
+        height: '100%',
+        minHeight: size,
         backgroundColor: backgroundColor || '#000000',
         border: '1px solid #ffffff',
-        borderRadius: '5px',
+        borderRadius: '8px',
         overflow: 'hidden'
       }}
     >
-      <canvas ref={canvasRef} style={{ position: 'absolute', top: 0, left: 0 }} />
+      <canvas ref={canvasRef} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }} />
       {error && (
         <div
           style={{

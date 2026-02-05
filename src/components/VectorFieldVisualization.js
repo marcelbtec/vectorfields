@@ -1,11 +1,18 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import styled from 'styled-components';
 
+const PARTICLE_COUNT = 20000;
+const MAX_AGE = 300;
+const FADE_IN = 30;
+const FADE_OUT = 30;
+const STRIDE = 4;
+
 const Container = styled.div`
   position: relative;
-  width: ${({ width }) => width}px;
-  height: ${({ height }) => height}px;
+  width: 100%;
+  height: 100%;
   background-color: ${({ backgroundColor }) => backgroundColor};
+  overflow: hidden;
 `;
 
 const StyledCanvas = styled.canvas`
@@ -51,13 +58,32 @@ const VectorFieldVisualization = ({
   traceMode
 }) => {
   const canvasRef = useRef(null);
-  const glRef = useRef(null);
-  const programRef = useRef(null);
+  const containerRef = useRef(null);
   const [error, setError] = useState(null);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const isMounted = useRef(true);
   const particlesRef = useRef(null);
   const tracedParticlesRef = useRef([]);
+  const paramsRef = useRef({
+    dx,
+    dy,
+    xMin,
+    xMax,
+    yMin,
+    yMax,
+    a,
+    b,
+    colorScheme,
+    backgroundColor
+  });
+  const resourcesRef = useRef({
+    gl: null,
+    program: null,
+    positionBuffer: null,
+    uniforms: null,
+    attribs: null
+  });
+  const animationFrameIdRef = useRef(null);
   const dt = 0.01;
 
   // --- WebGL Helper Functions ---
@@ -181,7 +207,7 @@ const VectorFieldVisualization = ({
         float normalized = clamp(magnitude / 10.0, 0.0, 1.0);
         float hue = mix(0.6, 0.0, normalized);
         vec3 baseColor = hsv2rgb(vec3(hue, 1.0, 1.0));
-        float brightnessFactor = mix(1.0, 1.9, normalized);
+        float brightnessFactor = mix(1.0, 2.9, normalized);
         vec3 brightColor = clamp(baseColor * brightnessFactor, 0.0, 1.0);
         return vec4(brightColor, alpha);
       }
@@ -226,6 +252,34 @@ const VectorFieldVisualization = ({
       }
     `
   }), []);
+
+  useEffect(() => {
+    paramsRef.current = {
+      dx,
+      dy,
+      xMin,
+      xMax,
+      yMin,
+      yMax,
+      a,
+      b,
+      colorScheme,
+      backgroundColor,
+      traceMode
+    };
+  }, [dx, dy, xMin, xMax, yMin, yMax, a, b, colorScheme, backgroundColor, traceMode]);
+
+  useEffect(() => {
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  const safeSetError = useCallback((message) => {
+    if (isMounted.current) {
+      setError(message);
+    }
+  }, []);
 
   // Returns the corresponding uniform value for a given color scheme.
   const getColorSchemeUniform = useCallback((schemeName) => {
@@ -327,40 +381,57 @@ const VectorFieldVisualization = ({
       preserveDrawingBuffer: true
     });
     if (!gl) {
-      setError("WebGL not supported");
+      safeSetError("WebGL not supported");
       return null;
     }
     const program = helpers.createProgram(gl, shaderSources.vertex, shaderSources.fragment);
     if (!program) {
-      setError("Failed to create shader program");
+      safeSetError("Failed to create shader program");
       return null;
     }
     gl.useProgram(program);
-    const particleCount = 20000;
-    const particleData = new Float32Array(particleCount * 4);
-    for (let i = 0; i < particleCount; i++) {
-      const baseIdx = i * 4;
+    const { xMin, xMax, yMin, yMax } = paramsRef.current;
+    const particleData = new Float32Array(PARTICLE_COUNT * STRIDE);
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const baseIdx = i * STRIDE;
       particleData[baseIdx] = xMin + Math.random() * (xMax - xMin);
       particleData[baseIdx + 1] = yMin + Math.random() * (yMax - yMin);
-      particleData[baseIdx + 2] = Math.random() * 300;
+      particleData[baseIdx + 2] = Math.random() * MAX_AGE;
       particleData[baseIdx + 3] = 0;
     }
     const positionBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, particleData, gl.DYNAMIC_DRAW);
     particlesRef.current = particleData;
-    glRef.current = gl;
-    programRef.current = program;
     return { gl, program, positionBuffer };
-  }, [helpers, shaderSources.vertex, shaderSources.fragment, xMin, xMax, yMin, yMax]);
+  }, [helpers, shaderSources.vertex, shaderSources.fragment, safeSetError]);
+
+  const reseedParticles = useCallback((bounds) => {
+    const { xMin, xMax, yMin, yMax } = bounds || paramsRef.current;
+    const particleData = new Float32Array(PARTICLE_COUNT * STRIDE);
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const baseIdx = i * STRIDE;
+      particleData[baseIdx] = xMin + Math.random() * (xMax - xMin);
+      particleData[baseIdx + 1] = yMin + Math.random() * (yMax - yMin);
+      particleData[baseIdx + 2] = Math.random() * MAX_AGE;
+      particleData[baseIdx + 3] = 0;
+    }
+    particlesRef.current = particleData;
+    const { gl, positionBuffer } = resourcesRef.current;
+    if (gl && positionBuffer) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, particleData, gl.DYNAMIC_DRAW);
+    }
+  }, []);
 
   // Update particle positions using numerical integration.
   const updateParticles = useCallback(() => {
     const particles = particlesRef.current;
     if (!particles) return false;
+    const { dx, dy, a, b, xMin, xMax, yMin, yMax } = paramsRef.current;
     const updatedParticles = new Float32Array(particles.length);
     let successfulEvaluation = false;
-    for (let i = 0; i < particles.length; i += 4) {
+    for (let i = 0; i < particles.length; i += STRIDE) {
       const x = particles[i];
       const y = particles[i + 1];
       const age = particles[i + 2];
@@ -374,7 +445,7 @@ const VectorFieldVisualization = ({
         updatedParticles[i + 1] = y + vy * scaleFactor * dt;
         updatedParticles[i + 2] = age + 1;
         updatedParticles[i + 3] = magnitude;
-        if (age > 300 || 
+        if (age > MAX_AGE || 
             updatedParticles[i] < xMin || updatedParticles[i] > xMax ||
             updatedParticles[i + 1] < yMin || updatedParticles[i + 1] > yMax) {
           updatedParticles[i] = xMin + Math.random() * (xMax - xMin);
@@ -391,15 +462,7 @@ const VectorFieldVisualization = ({
     }
     particlesRef.current = updatedParticles;
     return successfulEvaluation;
-  }, [dx, dy, a, b, evaluateExpression, xMin, xMax, yMin, yMax, dt]);
-
-  // Update the canvas size based on window dimensions.
-  const updateCanvasSize = useCallback(() => {
-    const padding = 15;
-    const newWidth = window.innerWidth - padding * 2;
-    const newHeight = window.innerHeight - 80;
-    setCanvasSize({ width: newWidth, height: newHeight });
-  }, []);
+  }, [evaluateExpression, dt]);
 
   // Initialize traced particles for the trace mode.
   useEffect(() => {
@@ -414,33 +477,36 @@ const VectorFieldVisualization = ({
     }
   }, [traceMode, xMin, xMax, yMin, yMax]);
 
-  // Listen to window resize events.
+  // Keep canvas size in sync with the container.
   useEffect(() => {
-    updateCanvasSize();
-    window.addEventListener('resize', updateCanvasSize);
-    return () => {
-      window.removeEventListener('resize', updateCanvasSize);
-      isMounted.current = false;
-    };
-  }, [updateCanvasSize]);
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const nextWidth = Math.max(1, Math.floor(entry.contentRect.width));
+      const nextHeight = Math.max(1, Math.floor(entry.contentRect.height));
+      setCanvasSize((prev) => (
+        prev.width === nextWidth && prev.height === nextHeight
+          ? prev
+          : { width: nextWidth, height: nextHeight }
+      ));
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
 
-  // Main render loop
+  // Initialize WebGL once the canvas has a size.
   useEffect(() => {
     if (canvasSize.width === 0 || canvasSize.height === 0) return;
-    const { gl, program, positionBuffer } = initGL() || {};
-    if (!gl || !program || !positionBuffer) return;
-    const canvas = canvasRef.current;
-    const { width, height } = canvasSize;
-    canvas.width = width;
-    canvas.height = height;
-    gl.viewport(0, 0, width, height);
-    
-    // Get attribute locations.
-    const positionLoc = gl.getAttribLocation(program, 'a_position');
-    const ageLoc = gl.getAttribLocation(program, 'a_age');
-    const velocityLoc = gl.getAttribLocation(program, 'a_velocity');
-    
-    // Get uniform locations.
+    if (resourcesRef.current.gl) return;
+    const init = initGL();
+    if (!init) return;
+    const { gl, program, positionBuffer } = init;
+    const attribs = {
+      position: gl.getAttribLocation(program, 'a_position'),
+      age: gl.getAttribLocation(program, 'a_age'),
+      velocity: gl.getAttribLocation(program, 'a_velocity')
+    };
     const uniforms = {
       resolution: gl.getUniformLocation(program, 'u_resolution'),
       bounds: gl.getUniformLocation(program, 'u_bounds'),
@@ -450,39 +516,67 @@ const VectorFieldVisualization = ({
       colorScheme: gl.getUniformLocation(program, 'u_colorScheme'),
       customColor: gl.getUniformLocation(program, 'u_customColor')
     };
-    
-    // Set initial uniform values.
-    gl.uniform2f(uniforms.resolution, width, height);
-    gl.uniform4f(uniforms.bounds, xMin, yMin, xMax, yMax);
-    gl.uniform1f(uniforms.maxAge, 300);
-    gl.uniform1f(uniforms.fadeInDuration, 30);
-    gl.uniform1f(uniforms.fadeOutDuration, 30);
-    gl.uniform1i(uniforms.colorScheme, getColorSchemeUniform(colorScheme.name.toLowerCase()));
-    if (colorScheme.name.toLowerCase() === 'custom' &&
-        uniforms.customColor !== null &&
-        uniforms.customColor !== -1) {
-      gl.uniform3f(
-        uniforms.customColor,
-        (colorScheme.custom?.r || 255) / 255,
-        (colorScheme.custom?.g || 255) / 255,
-        (colorScheme.custom?.b || 255) / 255
-      );
-    }
-    
-    // Enable attributes.
-    gl.enableVertexAttribArray(positionLoc);
-    gl.enableVertexAttribArray(ageLoc);
-    gl.enableVertexAttribArray(velocityLoc);
-    
-    // Set up blending for smooth transitions.
+    resourcesRef.current = { gl, program, positionBuffer, uniforms, attribs };
+
+    gl.enableVertexAttribArray(attribs.position);
+    gl.enableVertexAttribArray(attribs.age);
+    gl.enableVertexAttribArray(attribs.velocity);
+
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    
-    let animationFrameId;
+
+    const { xMin, xMax, yMin, yMax } = paramsRef.current;
+    gl.uniform4f(uniforms.bounds, xMin, yMin, xMax, yMax);
+    gl.uniform1f(uniforms.maxAge, MAX_AGE);
+    gl.uniform1f(uniforms.fadeInDuration, FADE_IN);
+    gl.uniform1f(uniforms.fadeOutDuration, FADE_OUT);
+  }, [canvasSize, initGL]);
+
+  // Keep the WebGL viewport in sync with the canvas size.
+  useEffect(() => {
+    const { gl, uniforms } = resourcesRef.current;
+    const canvas = canvasRef.current;
+    if (!gl || !uniforms || !canvas) return;
+    if (canvasSize.width === 0 || canvasSize.height === 0) return;
+    const { width, height } = canvasSize;
+    canvas.width = width;
+    canvas.height = height;
+    gl.viewport(0, 0, width, height);
+    gl.uniform2f(uniforms.resolution, width, height);
+  }, [canvasSize]);
+
+  // Update bounds and reseed particles when the domain changes.
+  useEffect(() => {
+    const { gl, uniforms } = resourcesRef.current;
+    if (!gl || !uniforms) return;
+    gl.uniform4f(uniforms.bounds, xMin, yMin, xMax, yMax);
+    reseedParticles({ xMin, xMax, yMin, yMax });
+  }, [xMin, xMax, yMin, yMax, reseedParticles]);
+
+  // Main render loop.
+  useEffect(() => {
+    const { gl, program, positionBuffer, uniforms, attribs } = resourcesRef.current;
+    if (!gl || !program || !positionBuffer || !uniforms || !attribs) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const stride = STRIDE * Float32Array.BYTES_PER_ELEMENT;
+
     const render = () => {
       if (!isMounted.current) return;
-      
-      // Clear canvas with the background color.
+      const {
+        backgroundColor,
+        colorScheme,
+        traceMode,
+        xMin,
+        xMax,
+        yMin,
+        yMax,
+        dx,
+        dy,
+        a,
+        b
+      } = paramsRef.current;
+
       gl.clearColor(
         parseInt(backgroundColor.slice(1, 3), 16) / 255,
         parseInt(backgroundColor.slice(3, 5), 16) / 255,
@@ -490,23 +584,21 @@ const VectorFieldVisualization = ({
         0.8
       );
       gl.clear(gl.COLOR_BUFFER_BIT);
-      
-      // Update particle positions.
+
       const successfulEvaluation = updateParticles();
       if (!successfulEvaluation) {
-        setError("No valid particles. Check your equations.");
+        safeSetError("No valid particles. Check your equations.");
       } else {
-        setError(null);
+        safeSetError(null);
       }
-      
-      // Update the particle buffer.
+
       gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, particlesRef.current, gl.DYNAMIC_DRAW);
-      
-      // Update uniform for color scheme.
-      gl.uniform1i(uniforms.colorScheme, getColorSchemeUniform(colorScheme.name.toLowerCase()));
+
+      const schemeName = (colorScheme?.name || 'velocity').toLowerCase();
+      gl.uniform1i(uniforms.colorScheme, getColorSchemeUniform(schemeName));
       if (
-        colorScheme.name.toLowerCase() === 'custom' &&
+        schemeName === 'custom' &&
         uniforms.customColor !== null &&
         uniforms.customColor !== -1
       ) {
@@ -517,85 +609,84 @@ const VectorFieldVisualization = ({
           (colorScheme.custom?.b || 255) / 255
         );
       }
-      
-      // Define the structure of each vertex in the buffer.
-      const stride = 4 * Float32Array.BYTES_PER_ELEMENT;
-      gl.vertexAttribPointer(positionLoc, 2, gl.FLOAT, false, stride, 0);
-      gl.vertexAttribPointer(ageLoc, 1, gl.FLOAT, false, stride, 2 * Float32Array.BYTES_PER_ELEMENT);
-      gl.vertexAttribPointer(velocityLoc, 1, gl.FLOAT, false, stride, 3 * Float32Array.BYTES_PER_ELEMENT);
-      
-      // Draw the particles as points.
-      gl.drawArrays(gl.POINTS, 0, particlesRef.current.length / 4);
-      
-      // If trace mode is enabled, update and render traced particles.
+
+      gl.vertexAttribPointer(attribs.position, 2, gl.FLOAT, false, stride, 0);
+      gl.vertexAttribPointer(
+        attribs.age,
+        1,
+        gl.FLOAT,
+        false,
+        stride,
+        2 * Float32Array.BYTES_PER_ELEMENT
+      );
+      gl.vertexAttribPointer(
+        attribs.velocity,
+        1,
+        gl.FLOAT,
+        false,
+        stride,
+        3 * Float32Array.BYTES_PER_ELEMENT
+      );
+
+      gl.drawArrays(gl.POINTS, 0, particlesRef.current.length / STRIDE);
+
       if (traceMode) {
         const ctx = canvas.getContext('2d');
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-        ctx.lineWidth = 2;
-        tracedParticlesRef.current = tracedParticlesRef.current.map(particle => {
-          const vx = evaluateExpression(dx, particle.x, particle.y, a, b);
-          const vy = evaluateExpression(dy, particle.x, particle.y, a, b);
-          if (isFinite(vx) && isFinite(vy)) {
-            const magnitude = Math.sqrt(vx * vx + vy * vy);
-            const scaleFactor = 2 / (1 + magnitude);
-            const newX = particle.x + vx * scaleFactor * dt;
-            const newY = particle.y + vy * scaleFactor * dt;
-            const canvasX = ((newX - xMin) / (xMax - xMin)) * width;
-            const canvasY = height - ((newY - yMin) / (yMax - yMin)) * height;
-            return {
-              x: newX,
-              y: newY,
-              history: [...particle.history, { x: canvasX, y: canvasY }].slice(-100)
-            };
-          }
-          return particle;
-        });
-        tracedParticlesRef.current.forEach(particle => {
-          if (particle.history.length > 1) {
-            ctx.beginPath();
-            ctx.moveTo(particle.history[0].x, particle.history[0].y);
-            particle.history.forEach(point => ctx.lineTo(point.x, point.y));
-            ctx.stroke();
-          }
-        });
+        if (ctx) {
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+          ctx.lineWidth = 2;
+          tracedParticlesRef.current = tracedParticlesRef.current.map(particle => {
+            const vx = evaluateExpression(dx, particle.x, particle.y, a, b);
+            const vy = evaluateExpression(dy, particle.x, particle.y, a, b);
+            if (isFinite(vx) && isFinite(vy)) {
+              const magnitude = Math.sqrt(vx * vx + vy * vy);
+              const scaleFactor = 2 / (1 + magnitude);
+              const newX = particle.x + vx * scaleFactor * dt;
+              const newY = particle.y + vy * scaleFactor * dt;
+              const canvasX = ((newX - xMin) / (xMax - xMin)) * canvas.width;
+              const canvasY = canvas.height - ((newY - yMin) / (yMax - yMin)) * canvas.height;
+              return {
+                x: newX,
+                y: newY,
+                history: [...particle.history, { x: canvasX, y: canvasY }].slice(-100)
+              };
+            }
+            return particle;
+          });
+          tracedParticlesRef.current.forEach(particle => {
+            if (particle.history.length > 1) {
+              ctx.beginPath();
+              ctx.moveTo(particle.history[0].x, particle.history[0].y);
+              particle.history.forEach(point => ctx.lineTo(point.x, point.y));
+              ctx.stroke();
+            }
+          });
+        }
       }
-      
-      animationFrameId = requestAnimationFrame(render);
+
+      animationFrameIdRef.current = requestAnimationFrame(render);
     };
-    
-    animationFrameId = requestAnimationFrame(render);
-    
+
+    animationFrameIdRef.current = requestAnimationFrame(render);
+
     return () => {
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-      }
-      if (gl) {
-        gl.deleteProgram(program);
-        gl.deleteBuffer(positionBuffer);
+      if (animationFrameIdRef.current) {
+        cancelAnimationFrame(animationFrameIdRef.current);
       }
     };
-  }, [
-    canvasSize,
-    backgroundColor,
-    initGL,
-    updateParticles,
-    traceMode,
-    dx,
-    dy,
-    a,
-    b,
-    evaluateExpression,
-    xMin,
-    xMax,
-    yMin,
-    yMax,
-    dt,
-    colorScheme,
-    getColorSchemeUniform
-  ]);
+  }, [canvasSize, evaluateExpression, getColorSchemeUniform, updateParticles, safeSetError]);
+
+  // Cleanup WebGL resources on unmount.
+  useEffect(() => {
+    return () => {
+      const { gl, program, positionBuffer } = resourcesRef.current;
+      if (gl && program) gl.deleteProgram(program);
+      if (gl && positionBuffer) gl.deleteBuffer(positionBuffer);
+    };
+  }, []);
 
   return (
-    <Container width={canvasSize.width} height={canvasSize.height} backgroundColor={backgroundColor}>
+    <Container ref={containerRef} backgroundColor={backgroundColor}>
       <StyledCanvas ref={canvasRef} />
       {error && <ErrorMessage>{error}</ErrorMessage>}
       <Button onClick={onGenerateRandomSystem} right={10} bgColor="#4c5caf" aria-label="Generate Random System">
